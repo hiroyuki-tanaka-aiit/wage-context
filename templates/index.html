@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>上場企業の給与を公的統計と並べて見る</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  body { font-family: "Hiragino Sans", "Yu Gothic", sans-serif; margin: 0;
+         background: #f7f7f8; color: #1a1a1a; }
+  header { background: #2b3a55; color: #fff; padding: 14px 22px; }
+  header h1 { margin: 0; font-size: 17px; font-weight: 600; }
+  header p { margin: 4px 0 0; font-size: 12px; opacity: .8; }
+  nav { display: flex; gap: 2px; background: #e6e8ec; padding: 0 22px; }
+  nav button { border: 0; background: none; padding: 11px 18px; cursor: pointer;
+               font-size: 13px; color: #444; border-bottom: 3px solid transparent; }
+  nav button.on { background: #f7f7f8; color: #2b3a55; font-weight: 600;
+                  border-bottom-color: #2b3a55; }
+  main { padding: 18px 22px 40px; }
+  .bar { display: flex; gap: 14px; align-items: center; margin-bottom: 12px;
+         flex-wrap: wrap; font-size: 13px; }
+  select, input { padding: 6px 9px; font-size: 13px; border: 1px solid #ccc;
+                  border-radius: 4px; background: #fff; }
+  .card { background: #fff; border: 1px solid #e0e0e4; border-radius: 6px;
+          padding: 14px; overflow-x: auto; }
+  .note { font-size: 12px; color: #666; margin-top: 10px; line-height: 1.7; }
+  h2.sec { font-size: 14px; margin: 22px 0 8px; color: #2b3a55;
+           border-left: 4px solid #2b3a55; padding-left: 9px; }
+  h2.sec:first-child { margin-top: 0; }
+  /* 基準（分母）は見出しの直下に置く。長い注記に埋めると読み飛ばされる */
+  .base { font-size: 12.5px; line-height: 1.7; color: #40506b; background: #eef1f6;
+          border-left: 4px solid #8fa3c4; border-radius: 0 4px 4px 0;
+          padding: 7px 12px; margin: 0 0 10px; }
+  .base b { color: #2b3a55; }
+  .warn { display: none; background: #fff8e6; border: 1px solid #e0c060;
+          border-left: 5px solid #d4a72c; border-radius: 0 5px 5px 0;
+          padding: 9px 13px; margin-bottom: 12px; font-size: 12.5px;
+          line-height: 1.75; color: #5a4600; }
+  .warn.on { display: block; }
+  .warn b { color: #7a5c00; }
+  .panel { display: none; } .panel.on { display: block; }
+  table { border-collapse: collapse; font-size: 13px; width: 100%; }
+  th, td { border-bottom: 1px solid #e8e8ec; padding: 7px 10px; text-align: right;
+           white-space: nowrap; }
+  th { background: #f0f1f4; font-weight: 600; text-align: center; }
+  td.l, th.l { text-align: left; }
+  .pct { display: inline-block; min-width: 52px; padding: 2px 7px; border-radius: 3px;
+         color: #fff; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>上場企業の給与を、公的統計の賃金分布と並べて見る</h1>
+  <p>有価証券報告書（EDINET・金融庁）×  賃金構造基本統計調査（e-Stat・厚生労働省）×  上場銘柄一覧（JPX）</p>
+</header>
+
+<nav>
+  <button class="on" data-p="ind">業種別</button>
+  <button data-p="sc">年齢 × 給与</button>
+  <button data-p="sm">市場区分と年齢補正</button>
+  <button data-p="tb">一覧・絞り込み</button>
+</nav>
+
+<main>
+  <div class="bar" id="yearbar">
+    <label>年 <select id="year"></select></label>
+  </div>
+  <div id="caveat" class="warn"></div>
+
+  <div class="panel on" id="p-ind">
+    <h2 class="sec" id="rank-h">この5年で、給与はどこからどこへ動いたか</h2>
+    <p class="base" id="rank-base">
+      <b>矢印の根元が2021年、先が2025年。</b>並び順は上場企業の伸びた額。<br>
+      <b>業界全体</b>＝従業員10人以上の民間企業の正社員（公務員・零細企業・パートは含まない）。
+      有報の給与が正社員の平均なので、そこに揃えてある。
+    </p>
+    <div class="card" id="rank-card"><div id="g-rank" style="height:1000px"></div></div>
+
+  </div>
+
+  <div class="panel" id="p-sc">
+    <div class="bar"><label>業種 <select id="ind"></select></label></div>
+    <div class="card"><div id="g-sc" style="height:560px"></div></div>
+    <p class="note" id="sc-note"></p>
+  </div>
+
+  <div class="panel" id="p-sm">
+    <h2 class="sec">① 給与の実額（年齢を補正しない）</h2>
+    <div class="card"><div id="g-abs" style="height:300px"></div></div>
+
+    <h2 class="sec">② 年齢を揃えたあと（同業・同年齢の上場企業の中央値＝1.00）</h2>
+    <div class="card"><div id="g-adj" style="height:300px"></div></div>
+    <p class="note">
+      各社を「自分と同じ業種・同じ年齢階級の上場企業」と比べ、その中央値を市場区分ごとに取っている。
+      有報から自前で計算するので公表の遅れがない。<br>
+      表の「対全国平均」の「—」は統計が未公表の年（2026年）。
+    </p>
+
+    <h2 class="sec">③ 数値</h2>
+    <div class="card" id="sm-out"></div>
+  </div>
+
+  <div class="panel" id="p-tb">
+    <p class="base">
+      <b>分析ビューを通さずに、生の行をそのまま絞り込む。</b>
+      他の画面の数字はここで裏を取れる。列見出しを押すと並べ替え。
+    </p>
+    <div class="bar">
+      <label>年 <select id="f-year"></select></label>
+      <label>業種 <select id="f-ind"></select></label>
+      <label>市場 <select id="f-market"></select></label>
+      <label>都道府県 <select id="f-pref"></select></label>
+    </div>
+    <div class="bar">
+      <label>従業員数(単体) <input id="f-emp-min" type="number" placeholder="下限" style="width:78px">
+        〜 <input id="f-emp-max" type="number" placeholder="上限" style="width:78px"></label>
+      <label>連結 <input id="f-grp-min" type="number" placeholder="下限" style="width:78px">
+        〜 <input id="f-grp-max" type="number" placeholder="上限" style="width:78px"></label>
+      <label>年収(万円) <input id="f-sal-min" type="number" placeholder="下限" style="width:88px">
+        〜 <input id="f-sal-max" type="number" placeholder="上限" style="width:88px"></label>
+      <input id="f-q" placeholder="会社名・証券コード" size="20">
+      <button id="f-go">絞り込み</button>
+      <button id="f-clear">条件をクリア</button>
+    </div>
+    <div class="bar"><span id="tb-count" class="note" style="margin:0"></span></div>
+    <div class="card" id="tb-out"></div>
+    <div class="bar" id="tb-pager"></div>
+    <p class="note">
+      <b>入社時年齢</b>は 平均年齢 − 平均勤続年数。値が小さいほど新卒中心、
+      大きいほど中途採用中心の会社になる。<br>
+      <b>絞り込みは単体と連結の両方にかけられる。</b>持株会社は単体が数人なので、
+      単体だけで絞ると消える（光通信は単体2人・連結3,939人）。実態で選ぶなら連結を使う。<br>
+      <b>従業員数は提出会社（単体）、連結はグループ全体。</b>
+      有報は<b>提出会社の平均年収しか開示させない</b>ので、持株会社では
+      「2人・平均年収2,408万円」のような行になる（光通信 2025年、連結は3,939人）。
+      単体が100人を下回る行は色を変えている。連結の欄が空なのは単体決算のみの会社。<br>
+      <b>「—」</b>は全国基準が作れない行——統計が未公表の年（2026年）か、
+      e-Stat に対応する産業分類が無い業種（サービス業・水産・農林業）。<br>
+      <b>倍率の分母</b>はカーソルを載せると金額で出る。
+      <b>中央値どうしの倍率は出していない</b>——各社が開示するのは平均だけで社内の中央値は存在せず、
+      「企業の平均 ÷ 全国の中央値」は分子と分母で代表値が揃わないため。<br>
+      <b>分布での位置</b>は全国の<b>個人</b>の賃金分布に企業の平均を当てた位置なので、
+      母集団が違う参考値。公表分位（第1〜第9十分位）の外側は「上位10%以内」と範囲でしか示せない。
+    </p>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+
+const seq = {};
+async function fetchFor(view, url) {
+  const n = (seq[view] = (seq[view] || 0) + 1);
+  const data = await (await fetch(url)).json();
+  return n === seq[view] ? data : null;      // 追い越されていたら捨てる
+}
+const YEARS = {{ years|tojson }}, INDS = {{ industries|tojson }};
+const CAVEATS = {{ caveats|tojson }};
+const MARKET_COLORS = {{ market_colors|tojson }};
+const MARKETS = Object.keys(MARKET_COLORS);
+const ABOVE = '#2b6cb0', BELOW = '#c05621';
+const PREFS = {{ prefectures|tojson }};
+const LAYOUT = { margin:{t:24,r:16,b:110,l:86}, font:{family:'Hiragino Sans, sans-serif', size:12},
+                 paper_bgcolor:'#fff', plot_bgcolor:'#fff', hovermode:'closest' };
+const yen = v => (v/10000).toFixed(0) + '万';
+
+const YEN_AXIS = {
+  title:'平均年間給与', tickmode:'array',
+  tickvals: Array.from({length:9}, (_, i) => i * 5_000_000),
+  ticktext: Array.from({length:9}, (_, i) => i ? (i*500) + '万円' : '0'),
+};
+
+YEARS.forEach(y => $('#year').add(new Option(
+  y + '年' + (CAVEATS[y]?.length ? ' ⚠' : ''), y,
+  y == {{ default_year }}, y == {{ default_year }})));
+['すべて', ...INDS].forEach(i => $('#ind').add(new Option(i, i)));
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); $('#p-' + b.dataset.p).classList.add('on'); draw();
+});
+$('#year').onchange = draw; $('#ind').onchange = draw;
+
+async function drawTrend() {
+  const d = await fetchFor('trend', '/api/industry_trend');
+  if (!d || !d.rows.length) return;
+  const pct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+
+  const yOf = (i, off) => i + off;
+  const OFF = 0.19;
+  const arrow = (a, b, off, name, color, width) => {
+    const seg = {x: [], y: []};
+    d.rows.forEach((r, i) => {
+      seg.x.push(r[a], r[b] / 1, null);
+      seg.y.push(yOf(i, off), yOf(i, off), null);
+    });
+    const grow = d.rows.map(r => r[b] >= r[a]);
+    return [
+      {type:'scatter', mode:'lines', x:seg.x, y:seg.y, showlegend:false,
+       legendgroup:name, hoverinfo:'skip', line:{color, width}},
+      {type:'scatter', mode:'markers', name, legendgroup:name,
+       x:d.rows.map(r => r[b]), y:d.rows.map((_, i) => yOf(i, off)),
+       marker:{color, size:11,
+         symbol:grow.map(g => g ? 'triangle-right' : 'triangle-left')},
+       customdata:d.rows.map(r => [(r[a]/10000).toFixed(0), (r[b]/10000).toFixed(0),
+                                   pct(r[b] / r[a] - 1)]),
+       hovertemplate:`%{y}<br>${name}`
+                   + `<br>%{customdata[0]}万円 → %{customdata[1]}万円`
+                   + `（%{customdata[2]}）<extra></extra>`},
+    ];
+  };
+  const traces = [
+    ...arrow('whole_first', 'whole_last', -OFF, '業界全体（非上場も含む）', '#9db4d4', 3),
+    ...arrow('listed_first', 'listed_last', OFF, 'その業界の上場企業', '#2b6cb0', 3),
+  ];
+  const bands = d.rows.map((_, i) => i).filter(i => i % 2 === 0).map(i => ({
+    type:'rect', xref:'paper', x0:0, x1:1, y0:i - 0.5, y1:i + 0.5,
+    fillcolor:'#f2f5f9', line:{width:0}, layer:'below',
+  }));
+  Plotly.react('g-rank', traces,
+   {...LAYOUT, margin:{t:8, r:24, b:44, l:130}, shapes:bands,
+      legend:{orientation:'h', y:1.04, x:1, xanchor:'right'},
+      xaxis:{title:`平均年収（${d.first}年 → ${d.last}年）`, tickmode:'array',
+             tickvals:Array.from({length:9}, (_, i) => 3_000_000 + i * 1_000_000),
+             ticktext:Array.from({length:9}, (_, i) => (300 + i * 100) + '万円')},
+      yaxis:{tickmode:'array', tickvals:d.rows.map((_, i) => i),
+             ticktext:d.rows.map(r => `${r.ind}  (${r.n})`),
+             showgrid:false, range:[-0.5, d.rows.length - 0.5], automargin:true}},
+    {displayModeBar:false, responsive:true});
+}
+
+const SC_NOTE = {
+  ok: `点が各社（色は市場区分）。線は同じ業種の全国水準を年齢階級ごとに引いたもの。<br>
+       各社の点は<b>企業内の平均</b>で、線は<b>個人</b>の分布。母集団が違うものを重ねている。`,
+  対応先なし: `点が各社（色は市場区分）。<b>この業種には全国のカーブを引けない。</b>
+       JPX の「サービス業」は人材・広告・コンサル・外食・介護・教育を全部含む区分で、
+       e-Stat では7つの大分類に散らばるため、対応する1つの分類が無い。
+       水産・農林業は賃金構造基本統計調査の調査対象に含まれない。`,
+  統計なし: `点が各社（色は市場区分）。<b>この年は統計がまだ公表されていないので背景を引けない。</b>`,
+};
+
+async function drawScatter() {
+  const d = await fetchFor('sc',
+    `/api/scatter?year=${$('#year').value}&industry=${encodeURIComponent($('#ind').value)}`);
+  if (!d) return;
+  $('#sc-note').innerHTML = SC_NOTE[d.no_curve_reason] || SC_NOTE.ok;
+  Plotly.react('g-sc', d.traces,
+    {...LAYOUT, yaxis:YEN_AXIS,
+     xaxis:{title:'平均年齢'}, legend:{orientation:'h', y:-0.16}},
+    {displayModeBar:false, responsive:true});
+}
+
+function badge(p, outside) {
+  if (p == null) return '<span class="pct" style="background:#c7cdd4">—</span>';
+  const top = 100 - p*100;
+  const c = top <= 10 ? '#1a7f37' : top <= 25 ? '#4a9c5d' : top <= 50 ? '#8a8a8a' : '#b06a3b';
+  const label = !outside ? `上位${top.toFixed(0)}%`
+              : top <= 10 ? '上位10%以内' : '下位10%以下';
+  return `<span class="pct" style="background:${c}" title="${outside ? '公表分位の外側' : ''}">${label}</span>`;
+}
+const ratio = v => v == null ? '—' : v.toFixed(2) + '倍';
+
+async function drawSummary() {
+  const d = await fetchFor('sm', '/api/summary');
+  if (!d) return;
+  const years = [...new Set(d.rows.map(r => r.year))].sort();
+  const at = (mk, y) => d.rows.find(r => r.market === mk && r.year === y);
+  const series = (key, fmt) => MARKETS.map(mk => ({
+    type:'scatter', mode:'lines+markers', name:mk, x:years,
+    y:years.map(y => at(mk, y)?.[key] ?? null),
+    line:{color:MARKET_COLORS[mk], width:2.5}, marker:{size:7},
+    hovertemplate:`${mk} %{x}年<br>${fmt}<extra></extra>`,
+  }));
+  const base = {...LAYOUT, margin:{t:10,r:16,b:38,l:76},
+                legend:{orientation:'h', y:1.16, x:0}, xaxis:{dtick:1}};
+
+  Plotly.react('g-abs', series('salary_median', '%{y:,.0f}円'),
+    {...base, yaxis:{title:'給与中央値', tickmode:'array',
+                     tickvals:Array.from({length:7}, (_, i) => 5_000_000 + i * 500_000),
+                     ticktext:Array.from({length:7}, (_, i) => (500 + i * 50) + '万円')}},
+    {displayModeBar:false, responsive:true});
+
+  Plotly.react('g-adj', series('ratio_to_listed', '%{y:.2f}倍'),
+    {...base, yaxis:{title:'対 上場同業（中央値=1.00）', tickformat:'.2f', dtick:0.05},
+     shapes:[{type:'line', xref:'paper', x0:0, x1:1, y0:1, y1:1,
+              line:{color:'#d62728', width:2}}]},
+    {displayModeBar:false, responsive:true});
+
+  $('#sm-out').innerHTML = MARKETS.map(mk => `<table style="margin-bottom:18px">
+    <tr><th class="l" colspan="6" style="background:${MARKET_COLORS[mk]};color:#fff">${mk}</th></tr>
+    <tr><th>年</th><th>社数</th><th>給与中央値</th><th>平均年齢</th>
+        <th>対上場同業</th><th>対全国平均</th></tr>`
+    + years.map(y => { const r = at(mk, y); if (!r) return '';
+        return `<tr><td>${y}</td><td>${r.n}</td>
+        <td>${r.salary_median.toLocaleString()}円</td><td>${r.age_median.toFixed(1)}歳</td>
+        <td><b>${ratio(r.ratio_to_listed)}</b></td>
+        <td${r.ratio_to_national == null ? ' title="統計が未公表の年" style="color:#999"' : ''}>${
+          r.ratio_to_national == null ? '—' : ratio(r.ratio_to_national)}</td></tr>`;
+      }).join('') + '</table>').join('')
+    + `<p class="note">「対全国平均」の「—」は統計がまだ公表されていない年（2026年）。
+       分母だけ古いまま倍率を出すと必ず上振れするので、出さないことにした。<br>
+       2024・2025年は API のデータベースに未登録だが、e-Stat の統計表（Excel）から取って埋めている。</p>`;
+}
+
+const TB_COLS = [
+  ['year', '年', 'r'], ['name', '会社', 'l'], ['market', '市場', 'l'],
+  ['ind33', '業種', 'l'], ['prefecture', '都道府県', 'l'],
+  ['employees', '従業員数', 'r'], ['employees_group', '連結', 'r'],
+  ['age', '平均年齢', 'r'],
+  ['service_years', '勤続年数', 'r'], ['entry_age', '入社時年齢', 'r'],
+  ['salary', '平均年間給与', 'r'],
+  ['ratio_to_national', '対全国平均', 'r'], ['ratio_to_listed', '対上場同業', 'r'],
+  ['percentile', '分布での位置', 'r'],
+];
+let tbSort = 'salary', tbDesc = true, tbPage = 1;
+
+function fillSelect(id, values, anyLabel) {
+  const el = $(id);
+  el.innerHTML = '';
+  el.add(new Option(anyLabel, ''));
+  values.forEach(v => el.add(new Option(v, v)));
+}
+fillSelect('#f-year', YEARS, 'すべて');
+fillSelect('#f-ind', INDS, 'すべて');
+fillSelect('#f-market', MARKETS, 'すべて');
+fillSelect('#f-pref', PREFS, 'すべて');
+
+function tbQuery() {
+  const p = new URLSearchParams({sort: tbSort, desc: tbDesc ? 1 : 0, page: tbPage});
+  const put = (k, v) => { if (v !== '' && v != null) p.set(k, v); };
+  put('year', $('#f-year').value); put('ind33', $('#f-ind').value);
+  put('market', $('#f-market').value); put('prefecture', $('#f-pref').value);
+  put('q', $('#f-q').value.trim());
+  put('emp_min', $('#f-emp-min').value); put('emp_max', $('#f-emp-max').value);
+  put('grp_min', $('#f-grp-min').value); put('grp_max', $('#f-grp-max').value);
+  const sal = id => $(id).value === '' ? '' : $(id).value * 10000;
+  put('sal_min', sal('#f-sal-min')); put('sal_max', sal('#f-sal-max'));
+  return p;
+}
+
+const TB_FMT = {
+  employees: v => v.toLocaleString() + '人',
+  employees_group: v => v.toLocaleString() + '人',
+  age: v => v.toFixed(1) + '歳', service_years: v => v.toFixed(1) + '年',
+  entry_age: v => v.toFixed(1) + '歳', salary: v => v.toLocaleString() + '円',
+  ratio_to_national: v => v.toFixed(2) + '倍', ratio_to_listed: v => v.toFixed(2) + '倍',
+};
+
+async function drawTable() {
+  const d = await fetchFor('tb', '/api/table?' + tbQuery());
+  if (!d) return;
+  $('#tb-count').textContent = d.total
+    ? `${d.total.toLocaleString()} 件（${d.page} / ${d.pages} ページ）`
+    : '該当なし';
+  const arrow = c => c === d.sort ? (d.desc ? ' ▼' : ' ▲') : '';
+  $('#tb-out').innerHTML = '<table><tr>' + TB_COLS.map(([c, label, al]) =>
+      `<th class="${al === 'l' ? 'l' : ''}" data-col="${c}"
+           style="cursor:pointer">${label}${arrow(c)}</th>`).join('') + '</tr>'
+    + d.rows.map(r => '<tr>' + TB_COLS.map(([c, , al]) => {
+        const v = r[c];
+        const cls = al === 'l' ? ' class="l"' : '';
+        if (v == null) return `<td${cls} style="color:#aaa">—</td>`;
+        if (c === 'percentile') return `<td${cls}>${badge(v, r.percentile_outside)}</td>`;
+        const tip = c === 'ratio_to_national' && r.national_mean
+              ? ` title="分母: 同業・同年齢の全国平均 ${r.national_mean.toLocaleString()}円"`
+            : c === 'ratio_to_listed' && r.listed_median
+              ? ` title="分母: 同業・同年齢の上場企業の中央値 ${r.listed_median.toLocaleString()}円"` : '';
+        const warn = (c === 'employees' && v < 100) ? ' style="color:#b06a3b"' : '';
+        return `<td${cls}${warn}${tip}>${(TB_FMT[c] || (x => x))(v)}</td>`;
+      }).join('') + '</tr>').join('') + '</table>';
+  $('#tb-out').querySelectorAll('th[data-col]').forEach(th => th.onclick = () => {
+    const c = th.dataset.col;
+    if (c === tbSort) tbDesc = !tbDesc; else { tbSort = c; tbDesc = true; }
+    tbPage = 1; drawTable();
+  });
+  const btn = (label, page, on) =>
+    `<button data-page="${page}"${on ? ' disabled' : ''}>${label}</button>`;
+  $('#tb-pager').innerHTML = d.pages > 1
+    ? btn('◀ 前', d.page - 1, d.page <= 1)
+      + `<span class="note" style="margin:0 6px">${d.page} / ${d.pages}</span>`
+      + btn('次 ▶', d.page + 1, d.page >= d.pages) : '';
+  $('#tb-pager').querySelectorAll('button').forEach(b => b.onclick = () => {
+    tbPage = +b.dataset.page; drawTable();
+    $('#p-tb').scrollIntoView({block: 'start'});
+  });
+}
+$('#f-go').onclick = () => { tbPage = 1; drawTable(); };
+$('#f-clear').onclick = () => {
+  ['#f-year', '#f-ind', '#f-market', '#f-pref', '#f-q',
+   '#f-emp-min', '#f-emp-max', '#f-grp-min', '#f-grp-max',
+   '#f-sal-min', '#f-sal-max'].forEach(i => $(i).value = '');
+  tbPage = 1; drawTable();
+};
+$('#f-q').addEventListener('keydown', e => { if (e.key === 'Enter') $('#f-go').click(); });
+
+function draw() {
+  const p = document.querySelector('nav button.on').dataset.p;
+  const showYear = (p === 'sc');   // 年が効くのは年齢×給与だけになった
+  $('#yearbar').style.display = showYear ? 'flex' : 'none';
+  const notes = showYear ? (CAVEATS[$('#year').value] || []) : [];
+  $('#caveat').className = 'warn' + (notes.length ? ' on' : '');
+  $('#caveat').innerHTML = notes.length
+    ? `<b>⚠ ${$('#year').value}年はそのまま読めません</b><br>`
+      + notes.map(n => '・' + n).join('<br>') : '';
+  if (p === 'ind') drawTrend();
+  else if (p === 'sc') drawScatter();
+  else if (p === 'sm') drawSummary();
+  else if (p === 'tb') drawTable();
+}
+draw();
+</script>
+</body>
+</html>
